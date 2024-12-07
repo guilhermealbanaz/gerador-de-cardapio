@@ -1,0 +1,80 @@
+// src/modules/subscription/subscription.service.ts
+import { Injectable } from '@nestjs/common';
+import Stripe from 'stripe';
+import { ConfigService } from '@nestjs/config';
+import { Restaurant } from '../restaurant/entities/restaurant.entity';
+
+@Injectable()
+export class SubscriptionService {
+  private stripe: Stripe;
+
+  constructor(private configService: ConfigService) {
+    this.stripe = new Stripe(configService.get('STRIPE_SECRET_KEY'), {
+      apiVersion: '2023-10-16',
+    });
+  }
+
+  async createSubscription(restaurant: Restaurant, priceId: string) {
+    // Criar ou recuperar cliente no Stripe
+    let stripeCustomer = await this.stripe.customers.create({
+      email: restaurant.email,
+      metadata: {
+        restaurantId: restaurant.id,
+      },
+    });
+
+    // Criar assinatura
+    const subscription = await this.stripe.subscriptions.create({
+      customer: stripeCustomer.id,
+      items: [{ price: priceId }],
+      payment_behavior: 'default_incomplete',
+      expand: ['latest_invoice.payment_intent'],
+    });
+
+    return {
+      subscriptionId: subscription.id,
+      clientSecret: (subscription.latest_invoice as Stripe.Invoice)
+        .payment_intent.client_secret,
+    };
+  }
+
+  async handleWebhook(event: Stripe.Event) {
+    switch (event.type) {
+      case 'customer.subscription.created':
+        // Atualizar status da assinatura no banco
+        break;
+      case 'customer.subscription.updated':
+        // Atualizar limites do plano
+        break;
+      case 'customer.subscription.deleted':
+        // Desativar recursos premium
+        break;
+    }
+  }
+}
+
+// src/modules/subscription/plans.config.ts
+export const SUBSCRIPTION_PLANS = {
+  BASIC: {
+    id: 'basic',
+    name: 'Básico',
+    price: 2900, // Em centavos
+    features: {
+      maxMenus: 1,
+      maxItems: 50,
+      analyticsLevel: 'basic',
+      customQrCode: false,
+    },
+  },
+  PREMIUM: {
+    id: 'premium',
+    name: 'Premium',
+    price: 7900,
+    features: {
+      maxMenus: -1, // Ilimitado
+      maxItems: -1,
+      analyticsLevel: 'complete',
+      customQrCode: true,
+    },
+  },
+};
